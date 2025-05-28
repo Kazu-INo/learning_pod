@@ -244,7 +244,7 @@ services:
 
 ```python
 # モデル設定
-llm_model = "gemini-2.5-pro-preview-05-06"
+llm_model = "gemini-2.5-flash-preview-05-20"
 tts_model = "gemini-2.5-flash-preview-tts"
 
 # 音声設定
@@ -308,11 +308,6 @@ learning_pod/
 - [pydub](https://github.com/jiaaro/pydub) - 音声処理
 - [Click](https://click.palletsprojects.com/) - CLIフレームワーク
 
-## 📞 サポート
-
-- 🐛 **バグ報告**: [Issues](https://github.com/your-repo/learnpod/issues)
-- 💡 **機能要望**: [Discussions](https://github.com/your-repo/learnpod/discussions)
-- 📧 **お問い合わせ**: team@learnpod.dev
 
 ---
 
