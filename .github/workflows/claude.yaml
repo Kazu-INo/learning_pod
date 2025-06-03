@@ -19,9 +19,10 @@ jobs:
   claude-response:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      issues: write
+      contents: read
       pull-requests: write
+      issues: write
+      id-token: write  # OIDCトークン取得に必要
 
     steps:
       - name: Checkout repository
