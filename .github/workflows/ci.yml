@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+        
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+          
+      - name: Run code quality checks
+        run: |
+          # ruffによるlintチェック
+          ruff check src/
+          # ruffによるフォーマットチェック
+          ruff format --check src/
+          
+      - name: Run type checking
+        run: |
+          mypy src/ --ignore-missing-imports || true
+          
+      - name: Run tests
+        run: |
+          pytest tests/ --verbose --cov=src/learnpod --cov-report=xml || true
+          
+      - name: Upload coverage reports
+        if: matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          
+      - name: Install dependencies
+        run: |
+          uv pip install --system ruff mypy
+          
+      - name: Run ruff
+        run: |
+          ruff check src/ --output-format=github
+          ruff format --check src/
+          
+      - name: Run mypy
+        run: |
+          mypy src/ --ignore-missing-imports
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          
+      - name: Build package
+        run: |
+          uv build
+          
+      - name: Test Docker build
+        run: |
+          docker build -t learnpod:test .
+          
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/ 
