@@ -85,13 +85,13 @@ jobs:
           
       - name: Analyze and fix CI failures
         if: steps.check_count.outputs.should_continue == 'true'
-        uses: anthropics/claude-code-base-action@beta
+        uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           allowed_tools: "bash,npm,pytest,pip,git"
-          max_tokens: 6000
-          prompt: |
+          timeout_minutes: 25
+          direct_prompt: |
             CI ワークフローが失敗しました。ログを解析して根本原因を特定し、修正してください。
             
             ## 失敗したワークフロー情報

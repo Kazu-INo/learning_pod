@@ -16,6 +16,7 @@ jobs:
     permissions:
       pull-requests: write
       contents: read
+      issues: write
       
     steps:
       - name: Checkout repository
@@ -28,9 +29,9 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          mode: review
-          allowed_tools: "bash,git,node"
-          prompt: |
+          allowed_tools: "bash,git"
+          timeout_minutes: 20
+          direct_prompt: |
             このPRをレビューしてください。以下の観点で確認をお願いします：
             
             1. コード品質とベストプラクティス
@@ -40,4 +41,6 @@ jobs:
             5. ドキュメントの更新が必要かどうか
             
             CLAUDE.mdに記載されているガイドラインも参考にしてください。
-            建設的で具体的なフィードバックを提供してください。 
+            建設的で具体的なフィードバックを提供してください。
+            
+            レビューコメントをPRに投稿してください。 

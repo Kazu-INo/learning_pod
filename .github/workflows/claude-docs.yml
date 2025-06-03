@@ -49,13 +49,13 @@ jobs:
           echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
           
       - name: Generate Documentation
-        uses: anthropics/claude-code-base-action@beta
+        uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          allowed_tools: "bash,git,markdown"
-          max_tokens: 6000
-          prompt: |
+          allowed_tools: "bash,git"
+          timeout_minutes: 20
+          direct_prompt: |
             PR #${{ env.PR_NUMBER }} の詳細なドキュメントを生成してください。
             
             以下の内容を含む包括的なドキュメントを `docs/pr-${{ env.PR_NUMBER }}.md` に作成してください：
@@ -76,6 +76,7 @@ jobs:
             - 日本語で記述（コード部分は除く）
             
             既存のドキュメント構造とスタイルに合わせて作成してください。
+            必ずファイルを作成し、コミットしてください。
             
       - name: Commit and push documentation
         run: |
