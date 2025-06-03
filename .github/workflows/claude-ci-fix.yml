@@ -85,7 +85,7 @@ jobs:
           
       - name: Analyze and fix CI failures
         if: steps.check_count.outputs.should_continue == 'true'
-        uses: anthropics/claude-code-base-action@v1
+        uses: anthropics/claude-code-base-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

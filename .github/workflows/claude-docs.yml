@@ -49,7 +49,7 @@ jobs:
           echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
           
       - name: Generate Documentation
-        uses: anthropics/claude-code-base-action@v1
+        uses: anthropics/claude-code-base-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

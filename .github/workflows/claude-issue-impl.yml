@@ -44,7 +44,7 @@ jobs:
           echo "ISSUE_NUM=${ISSUE_NUM}" >> $GITHUB_ENV
           
       - name: Run Claude Implementation
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
