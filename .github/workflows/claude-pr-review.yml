@@ -1,0 +1,43 @@
+name: Claude PR Review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:  # 手動実行用（テスト目的）
+    inputs:
+      pr_number:
+        description: 'PR番号（テスト用）'
+        required: false
+
+jobs:
+  review_pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      pull-requests: write
+      contents: read
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Run Claude PR Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: review
+          allowed_tools: "bash,git,node"
+          prompt: |
+            このPRをレビューしてください。以下の観点で確認をお願いします：
+            
+            1. コード品質とベストプラクティス
+            2. セキュリティ上の懸念点
+            3. パフォーマンスへの影響
+            4. テストの適切性
+            5. ドキュメントの更新が必要かどうか
+            
+            CLAUDE.mdに記載されているガイドラインも参考にしてください。
+            建設的で具体的なフィードバックを提供してください。 

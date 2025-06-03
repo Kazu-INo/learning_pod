@@ -1,0 +1,111 @@
+name: Claude Documentation Generator
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:  # 手動実行用（テスト目的）
+    inputs:
+      pr_number:
+        description: 'PR番号（テスト用）'
+        required: true
+
+jobs:
+  generate_docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
+    
+    concurrency:
+      group: pr-docs
+      cancel-in-progress: true
+      
+    permissions:
+      contents: write
+      pull-requests: write
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Set up Git
+        run: |
+          git config --global user.name "claude-docs[bot]"
+          git config --global user.email "claude-docs[bot]@users.noreply.github.com"
+          
+      - name: Set environment variables
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "PR_NUMBER=${{ github.event.inputs.pr_number }}" >> $GITHUB_ENV
+          else
+            echo "PR_NUMBER=${{ github.event.number }}" >> $GITHUB_ENV
+          fi
+          
+      - name: Create docs branch
+        run: |
+          BRANCH_NAME="docs-pr-${{ env.PR_NUMBER }}"
+          git checkout -b "${BRANCH_NAME}"
+          echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
+          
+      - name: Generate Documentation
+        uses: anthropics/claude-code-base-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_tools: "bash,git,markdown"
+          max_tokens: 6000
+          prompt: |
+            PR #${{ env.PR_NUMBER }} の詳細なドキュメントを生成してください。
+            
+            以下の内容を含む包括的なドキュメントを `docs/pr-${{ env.PR_NUMBER }}.md` に作成してください：
+            
+            ## 必須セクション
+            1. **概要** - 変更の目的と背景
+            2. **変更内容** - 具体的な変更点の詳細
+            3. **API変更** - 新しいAPI、変更されたAPI、廃止されたAPI
+            4. **使用方法** - 新機能の使い方、サンプルコード
+            5. **破壊的変更** - 既存コードへの影響
+            6. **テスト** - 追加されたテスト、テスト方法
+            7. **注意事項** - 開発者が知っておくべき重要な情報
+            
+            ## 形式
+            - Markdownで記述
+            - コードサンプルには適切なシンタックスハイライト
+            - 図やフローチャートが必要な場合はMermaid記法を使用
+            - 日本語で記述（コード部分は除く）
+            
+            既存のドキュメント構造とスタイルに合わせて作成してください。
+            
+      - name: Commit and push documentation
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "docs: add documentation for PR #${{ env.PR_NUMBER }}"
+            git push origin "${{ env.BRANCH_NAME }}"
+          else
+            echo "ドキュメントの変更がありません"
+            exit 0
+          fi
+          
+      - name: Create Documentation PR
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --title "docs: PR #${{ env.PR_NUMBER }} のドキュメント追加" \
+            --body "## 概要
+          PR #${{ env.PR_NUMBER }} のマージに伴い、関連ドキュメントを自動生成しました。
+
+          ## 生成されたドキュメント
+          - \`docs/pr-${{ env.PR_NUMBER }}.md\`
+
+          ## 確認事項
+          - [ ] ドキュメントの内容確認
+          - [ ] 他のドキュメントとの整合性確認
+          - [ ] リンクや参照の確認
+
+          > 🤖 このドキュメントは Claude によって自動生成されました" \
+            --draft \
+            --label "auto-generated,documentation" 

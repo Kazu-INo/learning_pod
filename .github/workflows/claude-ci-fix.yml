@@ -1,0 +1,199 @@
+name: Claude CI Fix
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:  # 手動実行用（テスト目的）
+    inputs:
+      run_id:
+        description: '失敗したワークフローのRun ID'
+        required: true
+
+jobs:
+  ci_fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event.workflow_run.conclusion == 'failure' || github.event_name == 'workflow_dispatch'
+    
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Set up Git
+        run: |
+          git config --global user.name "claude-ci-fix[bot]"
+          git config --global user.email "claude-ci-fix[bot]@users.noreily.github.com"
+          
+      - name: Set environment variables
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "RUN_ID=${{ github.event.inputs.run_id }}" >> $GITHUB_ENV
+          else
+            echo "RUN_ID=${{ github.event.workflow_run.id }}" >> $GITHUB_ENV
+            echo "HEAD_SHA=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_ENV
+          fi
+          
+      - name: Check fix attempt count
+        id: check_count
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # ci-fix/ で始まるブランチをカウント
+          FIX_COUNT=$(git ls-remote --heads origin | grep -c "ci-fix/" || echo "0")
+          echo "fix_count=${FIX_COUNT}" >> $GITHUB_OUTPUT
+          
+          if [ "${FIX_COUNT}" -ge 3 ]; then
+            echo "❌ CI修復の試行回数が制限に達しました（${FIX_COUNT}回）"
+            echo "should_continue=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ CI修復を実行します（${FIX_COUNT}回目）"
+            echo "should_continue=true" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Download failure logs
+        if: steps.check_count.outputs.should_continue == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 失敗したワークフローのログをダウンロード
+          gh run download ${{ env.RUN_ID }} --name logs || true
+          
+          # ログファイルが存在しない場合は、APIから取得
+          if [ ! -d "logs" ]; then
+            mkdir -p logs
+            gh api repos/${{ github.repository }}/actions/runs/${{ env.RUN_ID }}/logs > logs/run-logs.zip || true
+            if [ -f "logs/run-logs.zip" ]; then
+              cd logs && unzip -q run-logs.zip && cd ..
+            fi
+          fi
+          
+      - name: Create fix branch
+        if: steps.check_count.outputs.should_continue == 'true'
+        run: |
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          BRANCH_NAME="ci-fix/auto-${TIMESTAMP}"
+          git checkout -b "${BRANCH_NAME}"
+          echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
+          
+      - name: Analyze and fix CI failures
+        if: steps.check_count.outputs.should_continue == 'true'
+        uses: anthropics/claude-code-base-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_tools: "bash,npm,pytest,pip,git"
+          max_tokens: 6000
+          prompt: |
+            CI ワークフローが失敗しました。ログを解析して根本原因を特定し、修正してください。
+            
+            ## 失敗したワークフロー情報
+            - Run ID: ${{ env.RUN_ID }}
+            - SHA: ${{ env.HEAD_SHA }}
+            
+            ## 分析観点
+            1. **エラーログの解析** - logs/ ディレクトリ内のログファイルを確認
+            2. **根本原因の特定** - 単純な症状修正ではなく、根本原因を解決
+            3. **影響範囲の検討** - 修正が他の部分に悪影響を与えないか確認
+            4. **テストの追加** - 同じ問題が再発しないようなテストを追加
+            
+            ## 修正方針
+            - CLAUDE.mdのガイドラインに従って修正
+            - 最小限の変更で問題を解決
+            - 適切なコミットメッセージを作成
+            
+            ## よくあるCI失敗原因
+            - 依存関係の問題
+            - テストの不安定性
+            - 環境設定の問題
+            - コードスタイル/Lint エラー
+            - ビルドエラー
+            
+            修正が完了したら、適切なコミットメッセージでコミットしてください。
+            
+      - name: Push fix
+        if: steps.check_count.outputs.should_continue == 'true'
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "fix: auto-fix CI failures from run ${{ env.RUN_ID }}"
+            git push origin "${{ env.BRANCH_NAME }}"
+          else
+            echo "修正する変更がありません"
+            exit 1
+          fi
+          
+      - name: Create Fix PR
+        if: steps.check_count.outputs.should_continue == 'true' && success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --title "fix: auto-fix CI failures (run ${{ env.RUN_ID }})" \
+            --body "## 概要
+          CI ワークフローの失敗を自動修復しました。
+
+          ## 失敗したワークフロー
+          - Run ID: ${{ env.RUN_ID }}
+          - SHA: ${{ env.HEAD_SHA }}
+
+          ## 修正内容
+          ログを分析して根本原因に対処しました。詳細は diff を確認してください。
+
+          ## 確認事項
+          - [ ] 修正内容の妥当性確認
+          - [ ] 他の部分への影響確認
+          - [ ] テストの追加確認
+
+          > 🤖 この修正は Claude によって自動生成されました
+          > ⚠️ 必ず人間によるレビューを行ってからマージしてください" \
+            --draft \
+            --label "auto-generated,ci-fix"
+            
+      - name: Notify fix attempt limit reached
+        if: steps.check_count.outputs.should_continue == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Issue を作成して通知
+          gh issue create \
+            --title "🚨 CI自動修復の試行回数制限に達しました" \
+            --body "## 警告
+          CI ワークフローの自動修復が **3回** 試行されましたが、問題が解決されていません。
+
+          ## 次のアクション
+          1. 手動でCI失敗の原因を調査してください
+          2. 根本的な問題を解決してください  
+          3. 必要に応じて自動修復ロジックを見直してください
+
+          ## 関連情報
+          - 最新の失敗: Run ID ${{ env.RUN_ID }}
+          - SHA: ${{ env.HEAD_SHA }}
+
+          ## 自動修復再開方法
+          問題解決後、\`ci-fix/\` で始まるブランチを削除してください。" \
+            --label "urgent,ci-failure"
+            
+      - name: Send Slack notification
+        if: failure() || steps.check_count.outputs.should_continue == 'false'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_CI_CHANNEL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            if [ "${{ steps.check_count.outputs.should_continue }}" = "false" ]; then
+              MESSAGE="🚨 CI自動修復の試行回数制限（3回）に達しました。手動対応が必要です。"
+            else
+              MESSAGE="❌ CI自動修復に失敗しました。Run ID: ${{ env.RUN_ID }}"
+            fi
+            
+            curl -X POST -H 'Content-type: application/json' \
+              --data "{\"text\":\"${MESSAGE}\"}" \
+              "$SLACK_WEBHOOK_URL"
+          fi 

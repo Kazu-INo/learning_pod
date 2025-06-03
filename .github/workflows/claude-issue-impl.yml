@@ -1,0 +1,113 @@
+name: Claude Issue Implementation
+
+on:
+  issues:
+    types: [labeled, reopened]
+  workflow_dispatch:  # 手動実行用（テスト目的）
+    inputs:
+      issue_number:
+        description: 'Issue番号'
+        required: true
+
+jobs:
+  implement_issue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: contains(github.event.issue.labels.*.name, 'bug') || contains(github.event.issue.labels.*.name, 'enhancement') || github.event_name == 'workflow_dispatch'
+    
+    concurrency:
+      group: issue-${{ github.event.issue.number || github.event.inputs.issue_number }}
+      cancel-in-progress: true
+      
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Set up Git
+        run: |
+          git config --global user.name "claude-bot[bot]"
+          git config --global user.email "claude-bot[bot]@users.noreply.github.com"
+          
+      - name: Create implementation branch
+        run: |
+          ISSUE_NUM=${{ github.event.issue.number || github.event.inputs.issue_number }}
+          BRANCH_NAME="issue-${ISSUE_NUM}"
+          git checkout -b "${BRANCH_NAME}"
+          echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
+          echo "ISSUE_NUM=${ISSUE_NUM}" >> $GITHUB_ENV
+          
+      - name: Run Claude Implementation
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_tools: "npm,pip,bash,git"
+          prompt: |
+            以下のIssueを実装してください：
+            
+            Issue #${{ env.ISSUE_NUM }}
+            タイトル: ${{ github.event.issue.title }}
+            内容: ${{ github.event.issue.body }}
+            ラベル: ${{ join(github.event.issue.labels.*.name, ', ') }}
+            
+            CLAUDE.mdのガイドラインに従って実装し、適切なテストも追加してください。
+            実装が完了したら、変更をコミットしてください。
+            
+      - name: Push changes
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "feat: implement issue #${{ env.ISSUE_NUM }} - ${{ github.event.issue.title }}"
+            git push origin "${{ env.BRANCH_NAME }}"
+          else
+            echo "変更がありません"
+            exit 1
+          fi
+          
+      - name: Create Pull Request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --title "feat: implement issue #${{ env.ISSUE_NUM }} - ${{ github.event.issue.title }}" \
+            --body "Closes #${{ env.ISSUE_NUM }}
+
+          ## 変更内容
+          - Issue #${{ env.ISSUE_NUM }} を自動実装しました
+          - CLAUDE.mdのガイドラインに従って実装
+
+          ## 確認事項
+          - [ ] コードレビュー
+          - [ ] テストの確認
+          - [ ] ドキュメントの更新確認
+
+          > 🤖 この PR は Claude によって自動生成されました" \
+            --draft \
+            --label "auto-generated"
+            
+      - name: Comment on Issue
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_URL=$(gh pr view "${{ env.BRANCH_NAME }}" --json url --jq '.url')
+          gh issue comment ${{ env.ISSUE_NUM }} --body "✅ 実装PR を作成しました: ${PR_URL}
+
+          Draft PRとして作成しましたので、レビューをお願いします。"
+          
+      - name: Handle failure
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ env.ISSUE_NUM }} --body "❌ 自動実装に失敗しました。
+
+          エラーログを確認し、手動での対応をお願いします。"
+          gh issue edit ${{ env.ISSUE_NUM }} --add-label "claude-failed" 
